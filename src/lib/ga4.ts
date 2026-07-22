@@ -51,3 +51,10 @@ export function propertyPath(): string {
   if (!id) throw new Error('GA4_PROPERTY_ID is not set');
   return `properties/${id.replace(/^properties\//, '')}`;
 }
+
+/** The blog lives in a separate GA4 property. Null when not configured. */
+export function blogPropertyPath(): string | null {
+  const id = process.env.GA4_BLOG_PROPERTY_ID;
+  if (!id) return null;
+  return `properties/${id.replace(/^properties\//, '')}`;
+}

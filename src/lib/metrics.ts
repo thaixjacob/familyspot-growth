@@ -1,5 +1,5 @@
 import type { protos } from '@google-analytics/data';
-import { getGa4Client, propertyPath } from './ga4';
+import { getGa4Client, propertyPath, blogPropertyPath } from './ga4';
 
 type FilterExpression = protos.google.analytics.data.v1beta.IFilterExpression;
 
@@ -284,6 +284,35 @@ async function trendReport(): Promise<TrendPoint[]> {
   });
 }
 
+/**
+ * The blog is a separate GA4 property, so it can't be split by stream in the
+ * main report. Pull its active users directly and surface it as its own origin.
+ * Returns null when unconfigured or the service account lacks access (yet).
+ */
+async function blogOrigin(): Promise<NamedCount | null> {
+  const prop = blogPropertyPath();
+  if (!prop) return null;
+  try {
+    const [res] = await getGa4Client().runReport({
+      property: prop,
+      dateRanges: [CURRENT_RANGE, PREVIOUS_RANGE],
+      metrics: [{ name: 'activeUsers' }],
+    });
+    let current = 0;
+    let previous = 0;
+    for (const row of res.rows ?? []) {
+      const range = row.dimensionValues?.[0]?.value ?? 'current';
+      const value = num(row.metricValues?.[0]?.value);
+      if (range === 'previous') previous = value;
+      else current = value;
+    }
+    if (current === 0 && previous === 0) return null;
+    return { label: 'Blog', current, previous };
+  } catch {
+    return null;
+  }
+}
+
 // ── orchestrator ─────────────────────────────────────────────────────────────
 
 export async function getWeeklySnapshot(): Promise<WeeklySnapshot> {
@@ -291,6 +320,7 @@ export async function getWeeklySnapshot(): Promise<WeeklySnapshot> {
     head,
     platform,
     surfaceData,
+    blog,
     keyEvents,
     topEvents,
     channels,
@@ -301,6 +331,7 @@ export async function getWeeklySnapshot(): Promise<WeeklySnapshot> {
     headline(),
     dimensionReport('platform', 'activeUsers', { bothRanges: true, limit: 10 }),
     surface(),
+    blogOrigin(),
     keyEventsReport(),
     dimensionReport('eventName', 'eventCount', { bothRanges: true, limit: 12 }),
     dimensionReport('sessionDefaultChannelGroup', 'sessions', { bothRanges: true, limit: 10 }),
@@ -314,7 +345,7 @@ export async function getWeeklySnapshot(): Promise<WeeklySnapshot> {
     range: { current: 'Last 7 days', previous: 'Previous 7 days' },
     headline: head,
     byPlatform: toNamedCounts(platform),
-    bySurface: surfaceData,
+    bySurface: blog ? [...surfaceData, blog] : surfaceData,
     keyEvents,
     topEvents: toNamedCounts(topEvents),
     channels: toNamedCounts(channels),
