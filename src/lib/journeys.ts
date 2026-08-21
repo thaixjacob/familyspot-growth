@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { getGoogleAccessToken } from './googleAuth';
 import { eventLabel } from './metrics';
 
@@ -13,7 +15,7 @@ import { eventLabel } from './metrics';
  * same service account already used for GA4 (scope `bigquery`).
  *
  * Config (all optional if the defaults hold):
- *   BIGQUERY_PROJECT_ID     defaults to the service account's project
+ *   BIGQUERY_PROJECT_ID     defaults to the service account's project_id
  *   GA4_BIGQUERY_DATASET    defaults to `analytics_<GA4_PROPERTY_ID>`
  *   BIGQUERY_LOCATION       dataset region (EU / US / europe-west1); auto-detected
  *   JOURNEYS_DAYS           lookback window, default 7
@@ -119,18 +121,33 @@ export async function getJourneys(limit = 150): Promise<JourneysSnapshot> {
 
 // ── config ──────────────────────────────────────────────────────────────────
 
-function resolveTarget(): { project: string; dataset: string } {
+/**
+ * The Cloud project holding the export. Same credentials as GA4, which arrive
+ * one of two ways: the whole JSON in an env var (Vercel) or a key file on disk
+ * (local dev) — both carry `project_id`, so neither needs extra configuration.
+ */
+function serviceAccountProject(): string | undefined {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  let saProject: string | undefined;
   if (raw) {
     try {
-      saProject = (JSON.parse(raw) as { project_id?: string }).project_id;
+      return (JSON.parse(raw) as { project_id?: string }).project_id;
     } catch {
-      /* handled by the GA4 client with a clearer message */
+      return undefined; // the GA4 client reports this with a clearer message
     }
   }
 
-  const project = process.env.BIGQUERY_PROJECT_ID || saProject;
+  const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (!keyFile) return undefined;
+  try {
+    const contents = readFileSync(keyFile, 'utf8');
+    return (JSON.parse(contents) as { project_id?: string }).project_id;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveTarget(): { project: string; dataset: string } {
+  const project = process.env.BIGQUERY_PROJECT_ID || serviceAccountProject();
   if (!project) throw new Error('Define BIGQUERY_PROJECT_ID (projeto Google Cloud do export).');
 
   const propertyId = (process.env.GA4_PROPERTY_ID ?? '').replace(/^properties\//, '');
