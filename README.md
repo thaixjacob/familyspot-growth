@@ -95,6 +95,15 @@ que enche o painel **"Jornada de cada pessoa"**.
 4. Se o projeto/dataset não forem os predefinidos, preenche `BIGQUERY_PROJECT_ID` e
    `GA4_BIGQUERY_DATASET`.
 
+No ecrã "Definir as configurações": deixa todos os fluxos e eventos incluídos (o
+percurso precisa da sequência completa), marca **Diariamente** em *Tipo de
+exportação*, e deixa desmarcados os *identificadores de publicidade* e os *dados
+do usuário* — o painel não os usa. O **Streaming** é opcional (mostra o próprio
+dia; exige faturação ativa e cobra por volume).
+
+Se escolheres a região **União Europeia**, não é preciso fazer nada: o painel
+deteta a região do dataset sozinho (e `BIGQUERY_LOCATION` força-a, se quiseres).
+
 > Só há dados **a partir do dia em que ligas o export** — não há histórico retroativo.
 > Enquanto não estiver ligado, o painel mostra esta checklist em vez de dar erro.
 > O volume do FamilySpot fica folgadamente dentro do tier grátis do BigQuery, e cada
@@ -133,6 +142,7 @@ Copia `.env.example` para `.env.local` e preenche. **Nunca faças commit de `.en
 | `DASHBOARD_PASSWORD` | senha do dashboard |
 | `BIGQUERY_PROJECT_ID` | (opcional) projeto do export GA4→BigQuery; por defeito o da service account |
 | `GA4_BIGQUERY_DATASET` | (opcional) dataset do export; por defeito `analytics_<GA4_PROPERTY_ID>` |
+| `BIGQUERY_LOCATION` | (opcional) região do dataset (`EU`, `US`…); detetada sozinha |
 | `JOURNEYS_DAYS` | (opcional) janela da tabela de jornadas, em dias (default 7) |
 | `BIGQUERY_JOURNEYS` | (opcional) `off` esconde o painel de jornadas |
 

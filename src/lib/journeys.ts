@@ -15,6 +15,7 @@ import { eventLabel } from './metrics';
  * Config (all optional if the defaults hold):
  *   BIGQUERY_PROJECT_ID     defaults to the service account's project
  *   GA4_BIGQUERY_DATASET    defaults to `analytics_<GA4_PROPERTY_ID>`
+ *   BIGQUERY_LOCATION       dataset region (EU / US / europe-west1); auto-detected
  *   JOURNEYS_DAYS           lookback window, default 7
  *   BIGQUERY_JOURNEYS=off   disables the panel entirely
  *
@@ -212,7 +213,37 @@ interface QueryRow {
   f?: Array<{ v?: string | null }>;
 }
 
+/**
+ * Runs the query, dealing with BigQuery's region rule: a job only sees datasets
+ * in its own location, and the API defaults to US. A GA4 export created with
+ * "European Union" therefore fails with "not found in location US" unless the
+ * location is passed. Rather than making that a manual setting, we try the
+ * default, then retry with the region the error itself names (and EU as the
+ * common case). BIGQUERY_LOCATION skips the guessing when set.
+ */
 async function runQuery(query: string): Promise<string[][]> {
+  const configured = process.env.BIGQUERY_LOCATION?.trim();
+  if (configured) return runQueryIn(query, configured);
+
+  try {
+    return await runQueryIn(query, undefined);
+  } catch (e) {
+    const message = msg(e);
+    // "Dataset … was not found in location US" — the dataset lives elsewhere.
+    if (!/not found in location|was not found/i.test(message)) throw e;
+    const named = /in location ([A-Za-z0-9-]+)/i.exec(message)?.[1];
+    for (const location of [...(named && named.toUpperCase() !== 'US' ? [named] : []), 'EU']) {
+      try {
+        return await runQueryIn(query, location);
+      } catch {
+        // Fall through to the original error, which is the more useful one.
+      }
+    }
+    throw e;
+  }
+}
+
+async function runQueryIn(query: string, location: string | undefined): Promise<string[][]> {
   const { project } = resolveTarget();
   const token = await getGoogleAccessToken(SCOPE);
   const res = await fetch(
@@ -225,6 +256,7 @@ async function runQuery(query: string): Promise<string[][]> {
         useLegacySql: false,
         timeoutMs: QUERY_TIMEOUT_MS,
         maximumBytesBilled: MAX_BYTES_BILLED,
+        ...(location ? { location } : {}),
       }),
     }
   );
