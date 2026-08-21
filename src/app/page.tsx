@@ -1,7 +1,8 @@
 import DashboardView from '@/components/DashboardView';
 import { getWeeklySnapshot } from '@/lib/metrics';
 import { getPhase2Snapshot } from '@/lib/integrations';
-import { demoSnapshot, demoPhase2 } from '@/lib/demo';
+import { getJourneys } from '@/lib/journeys';
+import { demoSnapshot, demoPhase2, demoJourneys } from '@/lib/demo';
 
 // GA4 client is Node-only; keep this page on the Node runtime and always fresh.
 export const runtime = 'nodejs';
@@ -39,13 +40,25 @@ export default async function Page({
   const { demo } = await searchParams;
 
   if (demo === '1') {
-    return <DashboardView snapshot={demoSnapshot()} phase2={demoPhase2()} demo />;
+    return (
+      <DashboardView
+        snapshot={demoSnapshot()}
+        phase2={demoPhase2()}
+        journeys={demoJourneys()}
+        demo
+      />
+    );
   }
 
   try {
-    // getPhase2Snapshot never throws; getWeeklySnapshot does if GA4 isn't set up.
-    const [snapshot, phase2] = await Promise.all([getWeeklySnapshot(), getPhase2Snapshot()]);
-    return <DashboardView snapshot={snapshot} phase2={phase2} />;
+    // getPhase2Snapshot / getJourneys never throw; getWeeklySnapshot does if GA4
+    // isn't set up, which is the one failure worth showing the setup page for.
+    const [snapshot, phase2, journeys] = await Promise.all([
+      getWeeklySnapshot(),
+      getPhase2Snapshot(),
+      getJourneys(),
+    ]);
+    return <DashboardView snapshot={snapshot} phase2={phase2} journeys={journeys} />;
   } catch (err) {
     return <SetupNeeded error={err instanceof Error ? err.message : 'Unknown error'} />;
   }

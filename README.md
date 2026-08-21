@@ -6,6 +6,10 @@ Painel de crescimento + dados do FamilySpot e pipeline de email semanal.
 
 - Puxa dados do **GA4** (uma propriedade, 4 streams: site `familyspot.app`, `blog.familyspot.app`, iOS e Android) via GA4 Data API com uma conta de serviço.
 - **Dashboard** (Next.js/Vercel) para consultar tudo num sítio: KPIs, tendência de 30 dias, split por plataforma, site vs blog, eventos-chave (add_place, search, sign_up…), aquisição e países.
+- **Padrões de uso**: funil passo-a-passo do produto (quantas pessoas chegam a cada passo e onde desistem), dias da semana e horas com mais uso, downloads (first_open) e uma tabela dia a dia dos últimos 30 dias. Cada quadro tem um **?** com a explicação em português.
+- **Jornada de cada pessoa**: a sequência exata de passos por sessão, a partir do export GA4 → BigQuery (ver passo 7).
+- **Erros e falhas**: crashes (`app_exception`), ecrãs que rebentam (`app_error`, `map_error`) e falhas de fluxo (`sign_up_error`, `google_login_error`, `add_place_form_error`, `form_validation_error`), com utilizadores afetados e taxa por 100 sessões. O quadro apanha qualquer evento novo cujo nome contenha *error/exception/fail/crash*, sem ter de mexer no código daqui.
+- **Estado das ligações**: avisos dos conectores (Meta, Play, App Store, BigQuery) num quadro próprio, em vez de uma linha cinzenta no fundo.
 - **Email semanal** (segunda 08:00 via Vercel Cron) com um resumo + insights escritos pelo Claude (ou por regras, se não houver API key), enviado pelo Resend.
 
 Fase 1 = GA4 (feito). Fase 2 (em curso): conector **Meta** implementado; **Play/App Store** estruturados, a ligar a seguir.
@@ -73,9 +77,45 @@ Sem esta chave, o email usa um resumo por regras (funciona na mesma).
 ### 6. Segurança
 
 - `CRON_SECRET` — string aleatória. Protege o endpoint `/api/weekly-report`.
-- `DASHBOARD_PASSWORD` — senha para abrir o dashboard (visita `/?pw=A_TUA_SENHA` uma vez).
+- `DASHBOARD_PASSWORD` — senha para abrir o dashboard. Abre o endereço e escreve a senha no formulário de login (funciona no telemóvel; o cookie dura 90 dias). O link antigo `/?pw=A_TUA_SENHA` continua a funcionar.
+
+### 7. Jornadas por pessoa (export GA4 → BigQuery) — opcional mas recomendado
+
+O GA4 Data API **só devolve totais**: consegue dizer "12 pessoas pesquisaram", nunca
+"esta pessoa abriu → pesquisou → adicionou um local". O único sítio com uma linha por
+evento (com um id anónimo de utilizador) é o **export gratuito para BigQuery**. É ele
+que enche o painel **"Jornada de cada pessoa"**.
+
+1. GA4 → **Admin → Product links → BigQuery links → Link** → escolhe o projeto Google
+   Cloud (o mesmo do Firebase serve), marca as streams e ativa o export **diário**
+   (o "streaming" é opcional e mostra também o dia de hoje).
+2. Google Cloud → **APIs & Services → Library** → ativa a **BigQuery API**.
+3. **IAM & Admin → IAM** → dá à service account do dashboard os papéis
+   **BigQuery Data Viewer** e **BigQuery Job User**.
+4. Se o projeto/dataset não forem os predefinidos, preenche `BIGQUERY_PROJECT_ID` e
+   `GA4_BIGQUERY_DATASET`.
+
+> Só há dados **a partir do dia em que ligas o export** — não há histórico retroativo.
+> Enquanto não estiver ligado, o painel mostra esta checklist em vez de dar erro.
+> O volume do FamilySpot fica folgadamente dentro do tier grátis do BigQuery, e cada
+> carregamento do dashboard tem um teto de ~2 GB analisados.
 
 ---
+
+### 8. Mensagens de erro detalhadas (opcional, 1 minuto)
+
+O quadro **Erros e falhas** mostra sempre quantos e de que tipo. Para ver *qual* foi
+a mensagem (`Cannot read properties of undefined`, `auth/popup-closed-by-user`…), o
+GA4 precisa que o parâmetro seja registado: **Admin → Definições personalizadas →
+Criar dimensão personalizada** → âmbito *Evento*, parâmetro `error_message` (podes
+repetir para `error_name`, `error_type`, `error_code`). O painel deteta sozinho qual
+existe e mostra o top 8. Vale a partir da data em que registas — não é retroativo.
+
+> Isto não substitui o Crashlytics: aqui vês **se** e **onde** rebenta; o stack trace
+> completo continua a ser lá.
+
+---
+
 
 ## Variáveis de ambiente
 
@@ -91,6 +131,10 @@ Copia `.env.example` para `.env.local` e preenche. **Nunca faças commit de `.en
 | `ANTHROPIC_API_KEY` | (opcional) insights por IA |
 | `CRON_SECRET` | protege o endpoint de cron |
 | `DASHBOARD_PASSWORD` | senha do dashboard |
+| `BIGQUERY_PROJECT_ID` | (opcional) projeto do export GA4→BigQuery; por defeito o da service account |
+| `GA4_BIGQUERY_DATASET` | (opcional) dataset do export; por defeito `analytics_<GA4_PROPERTY_ID>` |
+| `JOURNEYS_DAYS` | (opcional) janela da tabela de jornadas, em dias (default 7) |
+| `BIGQUERY_JOURNEYS` | (opcional) `off` esconde o painel de jornadas |
 
 ---
 
@@ -132,7 +176,15 @@ src/
     page.tsx        Dashboard (server) → DashboardView
     layout.tsx
     api/weekly-report/route.ts   Alvo do cron: puxa → insights → envia
+    journeys.ts     Jornada passo-a-passo por pessoa (GA4→BigQuery, via REST)
+    auth.ts         Cookie/hash da senha do dashboard
+    loginPage.ts    HTML do ecrã de login (usado pelo middleware, Edge)
+  app/
+    api/auth/route.ts  Recebe o formulário de login e põe o cookie
   components/
     DashboardView.tsx  UI (KPIs, tendência, listas)
-  middleware.ts     Gate de senha do dashboard
+    UsagePanels.tsx    Funil, dias/horas de uso, downloads, tabela dia a dia
+    JourneyPanel.tsx   Tabela de jornadas por pessoa
+    ui.tsx             Card + tooltips explicativos (funcionam a toque)
+  middleware.ts     Gate de senha do dashboard (mostra o formulário de login)
 ```
